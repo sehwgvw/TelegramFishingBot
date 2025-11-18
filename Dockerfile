@@ -9,4 +9,4 @@ COPY . .
 
 RUN mkdir -p sessions backups tdata ChatsForSpam
 
-CMD python bot.py
+CMD python main.py
