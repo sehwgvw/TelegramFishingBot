@@ -447,6 +447,17 @@ async def resend_code_callback(client: Client, query: CallbackQuery):
     else:
         await query.answer(response)
 
+# === ТЕСТОВЫЕ ОБРАБОТЧИКИ ===
+@app.on_message(filters.command("ping"))
+async def ping_command(client: Client, message: Message):
+    print(f"✅ PING COMMAND RECEIVED from {message.from_user.id}")
+    await message.reply_text("🏓 PONG! Bot is working!")
+
+@app.on_message(filters.command("test"))
+async def test_command(client: Client, message: Message):
+    print(f"✅ TEST COMMAND RECEIVED from {message.from_user.id}")
+    await message.reply_text("🤖 TEST OK! Bot is working!")
+
 # === ЗАПУСК ===
 async def run_bot():
     while True:
@@ -455,12 +466,14 @@ async def run_bot():
             await app.start()
             me = await app.get_me()
             print(f"✅ Bot @{me.username} started successfully!")
+            print("🟢 ALL HANDLERS SHOULD BE WORKING NOW!")
             
             while True:
                 await asyncio.sleep(3600)
                 
         except Exception as e:
             print(f"❌ Bot crashed: {e}")
+            print("🔄 Restarting in 10 seconds...")
             await asyncio.sleep(10)
 
 if __name__ == "__main__":
