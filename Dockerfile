@@ -9,4 +9,5 @@ COPY . .
 
 RUN mkdir -p sessions backups tdata ChatsForSpam
 
-CMD python main.py & python ping_server.py
+# Запускаем только основного бота
+CMD python main.py
