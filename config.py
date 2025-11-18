@@ -1,10 +1,8 @@
 import os
 
-# === НАСТРОЙКИ БОТА ===
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8538101699:AAE_zPwy8Zgl8BSJcceWvSFooSsPGyJvZ3U")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "7544069555"))
 
-# === API CREDENTIALS ===
 API_CREDENTIALS = [
     {
         "api_id": int(os.getenv("API_ID", "32114806")),
@@ -12,5 +10,4 @@ API_CREDENTIALS = [
     }
 ]
 
-# === РЕФЕРАЛЬНАЯ СИСТЕМА ===
 REFERRAL_BONUS = 50
