@@ -10,4 +10,7 @@ API_CREDENTIALS = [
     }
 ]
 
+# Добавь эту строку
+NO_WEBHOOK = True
+
 REFERRAL_BONUS = 50
