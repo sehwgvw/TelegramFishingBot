@@ -18,6 +18,8 @@ from pyrogram.types import (
 from pyrogram.errors import SessionPasswordNeeded, PhoneCodeInvalid, FloodWait, PhoneCodeExpired
 import config
 from keep_alive import keep_alive
+from web_server import keep_web
+keep_web()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
